@@ -151,10 +151,7 @@ struct EditTrackView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    viewModel.dominantBackgroundColor.opacity(0.92),
-                    viewModel.dominantBackgroundColor.opacity(0.55)
-                ],
+                gradient: Gradient(colors: viewModel.artworkGradient),
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -216,6 +213,7 @@ struct EditTrackView: View {
             .padding(24)
         }
         .frame(minWidth: 360, minHeight: 460)
+        .animation(.spring(), value: viewModel.artworkGradient)
     }
 }
 
@@ -226,15 +224,12 @@ struct MainWindowView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    viewModel.dominantBackgroundColor.opacity(0.9),
-                    viewModel.dominantBackgroundColor.opacity(0.6)
-                ],
+                gradient: Gradient(colors: viewModel.artworkGradient),
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
-            .animation(.easeInOut(duration: 0.4), value: viewModel.dominantBackgroundColor)
+            .animation(.spring(), value: viewModel.artworkGradient)
             
             VStack(spacing: 24) {
                 HStack(alignment: .top, spacing: 24) {
@@ -396,7 +391,7 @@ private struct ArtworkView: View {
         .onDisappear {
             teardownPlayer()
         }
-        .onChange(of: animationUrl) { newValue in
+        .onChange(of: animationUrl) { oldValue, newValue in
             if let url = newValue,
                (url.isLikelyVideoResource || url.pathExtension.lowercased() == "mp4") {
                 startLoopingVideo(with: url)
@@ -448,3 +443,4 @@ private struct ArtworkView: View {
         }
     }
 }
+

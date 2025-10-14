@@ -11,10 +11,7 @@ struct SettingsView: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.12, green: 0.16, blue: 0.26),
-                    Color(red: 0.07, green: 0.09, blue: 0.18)
-                ],
+                gradient: Gradient(colors: viewModel.artworkGradient),
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -140,6 +137,7 @@ struct SettingsView: View {
             }
             .padding(24)
         }
+        .animation(.spring(), value: viewModel.artworkGradient)
         .frame(width: 520, height: 600)
     }
 }

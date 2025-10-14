@@ -19,7 +19,10 @@ class StatusViewModel: ObservableObject {
     @Published var trackArtURL: URL?
     @Published var trackAnimationURL: URL?
     @Published var isPlaying: Bool = false
-    @Published var dominantBackgroundColor: Color = Color(nsColor: .windowBackgroundColor)
+    @Published var artworkGradient: [Color] = [
+        Color(red: 0.12, green: 0.17, blue: 0.3),
+        Color(red: 0.06, green: 0.09, blue: 0.18)
+    ]
     
     // --- การตั้งค่าที่ดึงมาจาก UserDefaults ---
     private var showNotifications: Bool = true
@@ -68,7 +71,10 @@ class StatusViewModel: ObservableObject {
     private let nowPlayingMonitor = MusicNowPlayingMonitor()
     private var playbackDisplayTimer: Timer?
     private var playbackLastUpdate: Date?
-    private let fallbackBackgroundColor = Color(nsColor: .windowBackgroundColor)
+    private let fallbackGradient: [Color] = [
+        Color(red: 0.12, green: 0.17, blue: 0.3),
+        Color(red: 0.06, green: 0.09, blue: 0.18)
+    ]
     private var isLastFmEnabled: Bool = false
     private var storedLastFmApiKey: String = ""
     private var storedLastFmSharedSecret: String = ""
@@ -114,7 +120,9 @@ class StatusViewModel: ObservableObject {
 
         // ใช้ Timer เรียกซ้ำทุก 3 วินาที เพื่อให้ตรวจจับการเปลี่ยนเพลงได้ไวขึ้น
         timer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.checkMusicStatus()
+            Task { @MainActor in
+                self?.checkMusicStatus()
+            }
         }
     }
 
@@ -187,7 +195,7 @@ class StatusViewModel: ObservableObject {
         isPlaying = true
         trackArtURL = nil
         trackAnimationURL = nil
-        dominantBackgroundColor = fallbackBackgroundColor
+        artworkGradient = fallbackGradient
         statusMessage = "กำลังเล่น: \(finalTrackName) - \(finalArtistName)"
         updateScrobbleStatus(progress: 0)
 
@@ -281,7 +289,6 @@ class StatusViewModel: ObservableObject {
             scrobbleStatusText = "Scrobbled แล้ว"
             return
         }
-        let clamped = max(0, min(100, percent))
         scrobbleStatusText = "รอ Scrobble"
     }
 
@@ -597,7 +604,7 @@ class StatusViewModel: ObservableObject {
         statusMessage = "หยุดเล่น หรือไม่ได้เปิด Apple Music"
         trackArtURL = nil
         trackAnimationURL = nil
-        dominantBackgroundColor = fallbackBackgroundColor
+        artworkGradient = fallbackGradient
         lastKnownTrack = nil
         currentPlaybackTime = "0:00"
         currentTrackDuration = "--:--"
@@ -610,7 +617,9 @@ class StatusViewModel: ObservableObject {
     private func startPlaybackDisplayTimer() {
         playbackDisplayTimer?.invalidate()
         let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.tickPlaybackDisplay()
+            Task { @MainActor in
+                self?.tickPlaybackDisplay()
+            }
         }
         playbackDisplayTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -709,10 +718,6 @@ class StatusViewModel: ObservableObject {
                         ?? animatedResponse.animatedUrl.flatMap { URL(string: $0) }
                 }
 
-                if animationUrl == nil {
-                    animationUrl = firstResult.previewUrl.flatMap { URL(string: $0) }
-                }
-
                 let mediaURLs = TrackMediaURLs(artwork: artworkUrl, animation: animationUrl)
                 trackMediaCache[cacheKey] = mediaURLs
                 return mediaURLs
@@ -794,45 +799,33 @@ class StatusViewModel: ObservableObject {
     }
     
     private func updateBackgroundColor(with artUrl: URL?) {
-        guard let artUrl, artUrl.isLikelyImageResource else {
-            Task { @MainActor [weak self] in
+        Task {
+            let colors = await loadAndExtractColors(from: artUrl)
+            await MainActor.run { [weak self] in
                 guard let self else { return }
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    self.dominantBackgroundColor = self.fallbackBackgroundColor
-                }
-            }
-            return
-        }
-        
-        Task.detached { [weak self] in
-            let nsColor = await Self.computeDominantColor(from: artUrl) ?? Self.fallbackDominantColor()
-            await MainActor.run {
-                guard let self else { return }
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    self.dominantBackgroundColor = Color(nsColor: nsColor)
+                withAnimation(.spring()) {
+                    self.artworkGradient = colors
                 }
             }
         }
     }
     
-    private static func computeDominantColor(from artUrl: URL?) async -> NSColor? {
-        guard let artUrl, artUrl.isLikelyImageResource else { return nil }
+    private func loadAndExtractColors(from url: URL?) async -> [Color] {
+        guard let url = url else { return fallbackGradient }
         
         do {
-            let (data, _) = try await URLSession.shared.data(from: artUrl)
-            guard let image = NSImage(data: data),
-                  let averageColor = image.averageColor else { return nil }
-            let baseColor = averageColor.usingColorSpace(.deviceRGB) ?? averageColor
-            let adjusted = baseColor.blended(withFraction: 0.3, of: .white) ?? baseColor
-            return adjusted
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let image = NSImage(data: data) else { return fallbackGradient }
+            
+            if let prominentColors = image.extractGradientColors() {
+                return prominentColors
+            } else {
+                return fallbackGradient
+            }
         } catch {
-            print("Error computing dominant color: \(error.localizedDescription)")
-            return nil
+            print("Error loading image data for color extraction: \(error)")
+            return fallbackGradient
         }
-    }
-    
-    nonisolated private static func fallbackDominantColor() -> NSColor {
-        .windowBackgroundColor
     }
     
     private func buildWebhookPayload(

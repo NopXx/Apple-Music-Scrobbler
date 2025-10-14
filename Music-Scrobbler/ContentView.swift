@@ -8,13 +8,12 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject var viewModel: StatusViewModel
+
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [
-                    Color(red: 0.12, green: 0.17, blue: 0.3),
-                    Color(red: 0.06, green: 0.09, blue: 0.18)
-                ],
+                gradient: Gradient(colors: viewModel.artworkGradient),
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -35,9 +34,11 @@ struct ContentView: View {
             .glassCard(padding: 24, shadowOpacity: 0.16)
             .padding(32)
         }
+        .animation(.spring(), value: viewModel.artworkGradient)
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(StatusViewModel())
 }

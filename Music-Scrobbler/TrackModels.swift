@@ -14,6 +14,7 @@ struct Track: Codable, Equatable, Hashable {
     var artistName: String
     let albumName: String?
     let trackArtUrl: URL?
+    let trackAnimationUrl: URL?
     // Keep original names for edit history mapping
     let originalTrackName: String
     let originalArtistName: String
@@ -22,6 +23,7 @@ struct Track: Codable, Equatable, Hashable {
         case trackName = "track_name"
         case artistName = "artist_name"
         case trackArtUrl = "track_art_url"
+        case trackAnimationUrl = "track_animation_url"
         case albumName = "album_name"
         case originalTrackName = "original_track_name"
         case originalArtistName = "original_artist_name"
@@ -60,9 +62,11 @@ enum ScrobbleEvent: String {
 
 // Helper structs for decoding iTunes API response
 struct iTunesSearchResult: Decodable {
-    let results: [iTunesAlbum]
+    let results: [iTunesLookupItem]
 }
 
-struct iTunesAlbum: Decodable {
-    let artworkUrl100: String
+struct iTunesLookupItem: Decodable {
+    let artworkUrl100: String?
+    let previewUrl: String?
+    let collectionViewUrl: String?
 }

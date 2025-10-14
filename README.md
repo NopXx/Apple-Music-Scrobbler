@@ -5,6 +5,7 @@ Music-Scrobbler is a macOS app that watches the Apple Music Now Playing feed, no
 ## Features
 - **Live Apple Music monitor** powered by `DistributedNotificationCenter`.
 - **Dynamic artwork matching** with a background gradient that adapts to album colours.
+- **Animated artwork playback** that surfaces Apple Music’s looped video assets in the main window, edit dialog, and webhook payloads.
 - **Liquid-glass UI** for the menu extra, main window, edit dialog, and settings.
 - **Inline track editor** with edit history so corrections persist.
 - **Instant webhook payloads** for now playing, paused, and scrobble events.
@@ -23,6 +24,7 @@ Music-Scrobbler is a macOS app that watches the Apple Music Now Playing feed, no
 3. Grant notification permission on first launch so the app can alert you to new tracks.
 4. Configure your webhook URL and scrobble threshold from the Settings window.
 5. Start Apple Music playback; the menu extra and main window will show the glass UI with live data.
+6. When Apple Music provides animated artwork, the app auto-plays the looping video while keeping the static cover art as a fallback.
 
 ## Last.fm Setup
 1. Create a Last.fm API application to obtain your API key and shared secret.
@@ -35,6 +37,8 @@ The app sends JSON payloads with `nowPlaying`, `paused`, and `scrobble` events. 
 - Processed artist/title/duration
 - Parsed playback position
 - A `metadata.trackArtUrl` pointing to cached artwork URLs
+- A `metadata.animationUrl` when an Apple Music animated artwork clip is available
+- `metadata.primaryMediaUrl` / `metadata.primaryMediaType` to indicate which asset consumers should prioritise
 - Connector metadata identifying Apple Music as the source
 
 Example `nowPlaying` payload:
@@ -63,7 +67,10 @@ Example `nowPlaying` payload:
       },
       "metadata": {
         "label": "Apple Music Scrobbler",
-        "trackArtUrl": "https://is4-ssl.mzstatic.com/image/thumb/Music/v4/13/72/57/1372570a-19cf-0a62-3d8d-76bbfe2dc93c/source/600x600bb.jpg"
+        "trackArtUrl": "https://is4-ssl.mzstatic.com/image/thumb/Music/v4/13/72/57/1372570a-19cf-0a62-3d8d-76bbfe2dc93c/source/600x600bb.jpg",
+        "animationUrl": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo211/v4/e5/d9/13/e5d91339-305a-68ff-815f-cbe925113920/P1172532261_Anull_video_gr698_sdr_2160x2160-.mp4",
+        "primaryMediaUrl": "https://mvod.itunes.apple.com/itunes-assets/HLSVideo211/v4/e5/d9/13/e5d91339-305a-68ff-815f-cbe925113920/P1172532261_Anull_video_gr698_sdr_2160x2160-.mp4",
+        "primaryMediaType": "video"
       },
       "connector": {
         "label": "Apple Music"

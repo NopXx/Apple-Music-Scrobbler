@@ -8,6 +8,8 @@
 import SwiftUI
 import UserNotifications
 import AppKit
+import AVKit
+import AVFoundation
 
 @main
 struct Music_ScrobblerApp: App {
@@ -159,7 +161,11 @@ struct EditTrackView: View {
             .ignoresSafeArea()
             
             HStack(alignment: .top, spacing: 24) {
-                ArtworkView(url: trackToEdit.trackArtUrl, size: 220)
+                ArtworkView(
+                    artworkUrl: trackToEdit.trackArtUrl,
+                    animationUrl: trackToEdit.trackAnimationUrl,
+                    size: 220
+                )
                 
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -232,7 +238,10 @@ struct MainWindowView: View {
             
             VStack(spacing: 24) {
                 HStack(alignment: .top, spacing: 24) {
-                    ArtworkView(url: viewModel.trackArtURL)
+                    ArtworkView(
+                        artworkUrl: viewModel.trackArtURL,
+                        animationUrl: viewModel.trackAnimationURL
+                    )
 
                     VStack(alignment: .leading, spacing: 14) {
                         if let track = viewModel.lastKnownTrack {
@@ -329,8 +338,12 @@ struct MainWindowView: View {
 }
 
 private struct ArtworkView: View {
-    let url: URL?
+    let artworkUrl: URL?
+    let animationUrl: URL?
     var size: CGFloat = 200
+    @State private var player: AVPlayer?
+    @State private var loopObserver: Any?
+    @State private var currentAnimationURL: URL?
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -345,23 +358,93 @@ private struct ArtworkView: View {
                 )
                 .shadow(color: Color.black.opacity(0.22), radius: 18, x: 0, y: 12)
 
-            if let url {
-                AsyncImage(url: url) { image in
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    ProgressView()
+            if let animationUrl,
+               (animationUrl.isLikelyVideoResource || animationUrl.pathExtension.lowercased() == "mp4") {
+                VideoPlayer(player: player)
+                    .frame(width: size, height: size)
+                    .clipShape(shape)
+                    .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 8)
+                    .onAppear {
+                        startLoopingVideo(with: animationUrl)
+                    }
+                    .onDisappear {
+                        teardownPlayer()
+                    }
+            } else if let url = artworkUrl, url.isLikelyImageResource {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    case .failure:
+                        placeholderSymbol
+                    case .empty:
+                        ProgressView()
+                    @unknown default:
+                        placeholderSymbol
+                    }
                 }
                 .frame(width: size, height: size)
                 .clipShape(shape)
                 .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 8)
             } else {
-                Image(systemName: "music.note")
-                    .font(.system(size: 48))
-                    .foregroundStyle(Color.white.opacity(0.7))
+                placeholderSymbol
             }
         }
         .frame(width: size, height: size)
+        .onDisappear {
+            teardownPlayer()
+        }
+        .onChange(of: animationUrl) { newValue in
+            if let url = newValue,
+               (url.isLikelyVideoResource || url.pathExtension.lowercased() == "mp4") {
+                startLoopingVideo(with: url)
+            } else {
+                teardownPlayer()
+            }
+        }
+    }
+
+    private var placeholderSymbol: some View {
+        Image(systemName: "music.note")
+            .font(.system(size: 48))
+            .foregroundStyle(Color.white.opacity(0.7))
+    }
+
+    private func startLoopingVideo(with url: URL) {
+        guard currentAnimationURL != url else {
+            player?.play()
+            return
+        }
+
+        teardownPlayer()
+
+        let item = AVPlayerItem(url: url)
+        let newPlayer = AVPlayer(playerItem: item)
+        newPlayer.actionAtItemEnd = .none
+
+        loopObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { _ in
+            newPlayer.seek(to: .zero)
+            newPlayer.play()
+        }
+
+        currentAnimationURL = url
+        player = newPlayer
+        newPlayer.play()
+    }
+
+    private func teardownPlayer() {
+        player?.pause()
+        player = nil
+        currentAnimationURL = nil
+        if let observer = loopObserver {
+            NotificationCenter.default.removeObserver(observer)
+            loopObserver = nil
+        }
     }
 }

@@ -17,6 +17,7 @@ import CryptoKit
 class StatusViewModel: ObservableObject {
     @Published var statusMessage: String = "กำลังโหลด..."
     @Published var trackArtURL: URL?
+    @Published var trackAnimationURL: URL?
     @Published var isPlaying: Bool = false
     @Published var dominantBackgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     
@@ -51,7 +52,17 @@ class StatusViewModel: ObservableObject {
     @Published private(set) var playbackProgress: Double = 0
     @Published private(set) var scrobbleStatusText: String = "ยังไม่มีการ Scrobble"
     private var hasBeenScrobbled = false
-    private var albumArtCache: [String: URL] = [:]
+    private struct TrackMediaURLs {
+        let artwork: URL?
+        let animation: URL?
+    }
+
+    private struct AnimatedArtworkResponse: Decodable {
+        let animatedUrl: String?
+        let animatedUrl1080: String?
+    }
+
+    private var trackMediaCache: [String: TrackMediaURLs] = [:]
     private var editHistory = [String: [String: String]]()
     private let editHistoryFileName = "edit_history.json"
     private let nowPlayingMonitor = MusicNowPlayingMonitor()
@@ -137,7 +148,12 @@ class StatusViewModel: ObservableObject {
     private func handlePlaybackStopped() {
         if let currentInfo = currentScrobbleTrackInfo {
             print("--- เพลงหยุดเล่น ---")
-            sendEvent(.paused, with: currentInfo, artUrl: trackArtURL)
+            sendEvent(
+                .paused,
+                with: currentInfo,
+                artUrl: trackArtURL,
+                animationUrl: trackAnimationURL
+            )
         }
         resetState()
     }
@@ -170,6 +186,7 @@ class StatusViewModel: ObservableObject {
         hasBeenScrobbled = false
         isPlaying = true
         trackArtURL = nil
+        trackAnimationURL = nil
         dominantBackgroundColor = fallbackBackgroundColor
         statusMessage = "กำลังเล่น: \(finalTrackName) - \(finalArtistName)"
         updateScrobbleStatus(progress: 0)
@@ -178,16 +195,23 @@ class StatusViewModel: ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let artUrl = await self.getArtworkURL(artist: finalArtistName, album: musicInfo.albumName)
+            let mediaURLs = await self.getTrackMediaURLs(
+                artist: finalArtistName,
+                album: musicInfo.albumName,
+                track: finalTrackName
+            )
 
             await MainActor.run {
-                self.trackArtURL = artUrl
+                let artworkUrl = mediaURLs?.artwork
+                self.trackArtURL = artworkUrl
+                self.trackAnimationURL = mediaURLs?.animation
 
                 let updatedTrack = Track(
                     trackName: finalTrackName,
                     artistName: finalArtistName,
                     albumName: musicInfo.albumName,
-                    trackArtUrl: artUrl,
+                    trackArtUrl: artworkUrl,
+                    trackAnimationUrl: mediaURLs?.animation,
                     originalTrackName: musicInfo.trackName,
                     originalArtistName: musicInfo.artistName
                 )
@@ -197,10 +221,15 @@ class StatusViewModel: ObservableObject {
                 }
 
                 self.lastKnownTrack = updatedTrack
-                self.updateBackgroundColor(with: artUrl)
+                self.updateBackgroundColor(with: artworkUrl)
 
                 if let infoForPayload = self.currentScrobbleTrackInfo {
-                    self.sendEvent(.nowPlaying, with: infoForPayload, artUrl: artUrl)
+                    self.sendEvent(
+                        .nowPlaying,
+                        with: infoForPayload,
+                        artUrl: artworkUrl,
+                        animationUrl: mediaURLs?.animation
+                    )
                     self.sendLastFmNowPlaying(infoForPayload)
                 }
             }
@@ -230,7 +259,12 @@ class StatusViewModel: ObservableObject {
             statusMessage = "Scrobbled: \(displayNames().track)"
             scrobbleStatusText = "Scrobbled แล้ว"
 
-            sendEvent(.scrobble, with: info, artUrl: trackArtURL)
+            sendEvent(
+                .scrobble,
+                with: info,
+                artUrl: trackArtURL,
+                animationUrl: trackAnimationURL
+            )
             sendLastFmScrobble(info)
         }
     }
@@ -248,7 +282,7 @@ class StatusViewModel: ObservableObject {
             return
         }
         let clamped = max(0, min(100, percent))
-        scrobbleStatusText = "รอ Scrobble (\(Int(clamped))%)"
+        scrobbleStatusText = "รอ Scrobble"
     }
 
     private func updateLastFmStatusText() {
@@ -562,6 +596,7 @@ class StatusViewModel: ObservableObject {
         isPlaying = false
         statusMessage = "หยุดเล่น หรือไม่ได้เปิด Apple Music"
         trackArtURL = nil
+        trackAnimationURL = nil
         dominantBackgroundColor = fallbackBackgroundColor
         lastKnownTrack = nil
         currentPlaybackTime = "0:00"
@@ -626,19 +661,31 @@ class StatusViewModel: ObservableObject {
     }
 
     // MARK: - Network and Data Handling
-    private func getArtworkURL(artist: String, album: String) async -> URL? {
-        let cacheKey = "\(artist)-\(album)"
-        if let cachedUrl = albumArtCache[cacheKey] {
-            return cachedUrl
+    private func getTrackMediaURLs(artist: String, album: String, track: String) async -> TrackMediaURLs? {
+        let cacheKey = "\(artist)||\(album)||\(track)"
+        if let cached = trackMediaCache[cacheKey] {
+            return cached
         }
         
         var components = URLComponents(string: "https://itunes.apple.com/search")!
-        components.queryItems = [
-            URLQueryItem(name: "term", value: "\(artist) \(album)"),
+        let queryTerm = [track, artist, album]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+
+        let trimmedTrack = track.trimmingCharacters(in: .whitespacesAndNewlines)
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "term", value: queryTerm.isEmpty ? "\(artist) \(album)" : queryTerm),
             URLQueryItem(name: "media", value: "music"),
-            URLQueryItem(name: "entity", value: "album"),
+            URLQueryItem(name: "entity", value: "musicTrack"),
             URLQueryItem(name: "limit", value: "1")
         ]
+
+        if !trimmedTrack.isEmpty {
+            queryItems.append(URLQueryItem(name: "attribute", value: "songTerm"))
+        }
+
+        components.queryItems = queryItems
         
         guard let url = components.url else { return nil }
         
@@ -646,16 +693,66 @@ class StatusViewModel: ObservableObject {
             let (data, _) = try await URLSession.shared.data(from: url)
             let searchResult = try JSONDecoder().decode(iTunesSearchResult.self, from: data)
             if let firstResult = searchResult.results.first {
-                let highResUrlString = firstResult.artworkUrl100.replacingOccurrences(of: "100x100bb.jpg", with: "600x600bb.jpg")
-                if let finalUrl = URL(string: highResUrlString) {
-                    albumArtCache[cacheKey] = finalUrl
-                    return finalUrl
+                var animationUrl: URL?
+
+                var artworkUrl: URL?
+                if let artworkString = firstResult.artworkUrl100 {
+                    let highResUrlString = artworkString.replacingOccurrences(of: "100x100bb.jpg", with: "600x600bb.jpg")
+                    artworkUrl = URL(string: highResUrlString) ?? URL(string: artworkString)
                 }
+
+                if let albumUrlString = firstResult.collectionViewUrl,
+                   let albumUrl = URL(string: albumUrlString),
+                   let animatedResponse = await fetchAnimatedArtwork(for: albumUrl) {
+                    animationUrl = animatedResponse.animatedUrl1080
+                        .flatMap { URL(string: $0) }
+                        ?? animatedResponse.animatedUrl.flatMap { URL(string: $0) }
+                }
+
+                if animationUrl == nil {
+                    animationUrl = firstResult.previewUrl.flatMap { URL(string: $0) }
+                }
+
+                let mediaURLs = TrackMediaURLs(artwork: artworkUrl, animation: animationUrl)
+                trackMediaCache[cacheKey] = mediaURLs
+                return mediaURLs
             }
         } catch {
             print("Error fetching or decoding artwork: \(error)")
         }
         return nil
+    }
+    
+    private func fetchAnimatedArtwork(for albumUrl: URL) async -> AnimatedArtworkResponse? {
+        var request = URLRequest(url: URL(string: "https://clients.dodoapps.io/playlist-precis/playlist-artwork.php")!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        var bodyComponents = URLComponents()
+        bodyComponents.queryItems = [
+            URLQueryItem(name: "url", value: albumUrl.absoluteString),
+            URLQueryItem(name: "animation", value: "true")
+        ]
+
+        do {
+            if let percentEncoded = bodyComponents.percentEncodedQuery {
+                request.httpBody = percentEncoded.data(using: .utf8)
+            }
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                if let http = response as? HTTPURLResponse {
+                    print("Animated artwork API returned status: \(http.statusCode)")
+                }
+                return nil
+            }
+            let decoder = JSONDecoder()
+            return try decoder.decode(AnimatedArtworkResponse.self, from: data)
+        } catch {
+            print("Error fetching animated artwork: \(error)")
+            return nil
+        }
     }
     
     private func sendToWebhook(payload: [String: Any]) {
@@ -691,12 +788,22 @@ class StatusViewModel: ObservableObject {
         }
     }
 
-    private func sendEvent(_ event: ScrobbleEvent, with musicInfo: MusicInfo, artUrl: URL?) {
-        let payload = buildWebhookPayload(event: event, musicInfo: musicInfo, artUrl: artUrl)
+    private func sendEvent(_ event: ScrobbleEvent, with musicInfo: MusicInfo, artUrl: URL?, animationUrl: URL?) {
+        let payload = buildWebhookPayload(event: event, musicInfo: musicInfo, artUrl: artUrl, animationUrl: animationUrl)
         sendToWebhook(payload: payload)
     }
     
     private func updateBackgroundColor(with artUrl: URL?) {
+        guard let artUrl, artUrl.isLikelyImageResource else {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    self.dominantBackgroundColor = self.fallbackBackgroundColor
+                }
+            }
+            return
+        }
+        
         Task.detached { [weak self] in
             let nsColor = await Self.computeDominantColor(from: artUrl) ?? Self.fallbackDominantColor()
             await MainActor.run {
@@ -709,7 +816,7 @@ class StatusViewModel: ObservableObject {
     }
     
     private static func computeDominantColor(from artUrl: URL?) async -> NSColor? {
-        guard let artUrl else { return nil }
+        guard let artUrl, artUrl.isLikelyImageResource else { return nil }
         
         do {
             let (data, _) = try await URLSession.shared.data(from: artUrl)
@@ -728,7 +835,28 @@ class StatusViewModel: ObservableObject {
         .windowBackgroundColor
     }
     
-    private func buildWebhookPayload(event: ScrobbleEvent, musicInfo: MusicInfo, artUrl: URL? = nil) -> [String: Any] {
+    private func buildWebhookPayload(
+        event: ScrobbleEvent,
+        musicInfo: MusicInfo,
+        artUrl: URL? = nil,
+        animationUrl: URL? = nil
+    ) -> [String: Any] {
+        let animationString = animationUrl?.absoluteString ?? ""
+        let artworkString = artUrl?.absoluteString ?? ""
+        let primaryMediaUrl: String
+        let primaryMediaType: String
+
+        if !animationString.isEmpty {
+            primaryMediaUrl = animationString
+            primaryMediaType = "video"
+        } else if !artworkString.isEmpty {
+            primaryMediaUrl = artworkString
+            primaryMediaType = "image"
+        } else {
+            primaryMediaUrl = ""
+            primaryMediaType = ""
+        }
+
         let payload: [String: Any] = [
             "eventName": event.rawValue,
             "time": Int(Date().timeIntervalSince1970 * 1000),
@@ -750,7 +878,10 @@ class StatusViewModel: ObservableObject {
                     "flags": ["isValid": true],
                     "metadata": [
                         "label": "Apple Music Scrobbler",
-                        "trackArtUrl": artUrl?.absoluteString ?? ""
+                        "trackArtUrl": artworkString,
+                        "animationUrl": animationString,
+                        "primaryMediaUrl": primaryMediaUrl,
+                        "primaryMediaType": primaryMediaType
                     ],
                     "connector": ["label": "Apple Music"]
                 ]
@@ -769,30 +900,29 @@ class StatusViewModel: ObservableObject {
         content.body = track.artistName
         content.sound = UNNotificationSound.default
 
-        if let artUrl = track.trackArtUrl {
-            Task {
+        Task {
+            if let artUrl = track.trackArtUrl, artUrl.isLikelyImageResource {
                 do {
                     let (data, _) = try await URLSession.shared.data(from: artUrl)
-                    let fileManager = FileManager.default
-                    let temporaryDirectory = fileManager.temporaryDirectory
-                    let fileURL = temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("jpg")
-                    
-                    try data.write(to: fileURL)
-                    
-                    let attachment = try UNNotificationAttachment(identifier: "albumArt", url: fileURL, options: nil)
-                    content.attachments = [attachment]                    
+                    if NSImage(data: data) != nil {
+                        let fileManager = FileManager.default
+                        let temporaryDirectory = fileManager.temporaryDirectory
+                        let fileURL = temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("jpg")
+                        
+                        try data.write(to: fileURL)
+                        
+                        let attachment = try UNNotificationAttachment(identifier: "albumArt", url: fileURL, options: nil)
+                        content.attachments = [attachment]
+                    } else {
+                        print("Downloaded artwork data is not an image. Skipping attachment.")
+                    }
                 } catch {
                     print("Could not attach album art to notification: \(error)")
                 }
-                
-                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                try? await UNUserNotificationCenter.current().add(request)
             }
-        } else {
-            Task {
-                let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-                try? await UNUserNotificationCenter.current().add(request)
-            }
+            
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            try? await UNUserNotificationCenter.current().add(request)
         }
     }
     
@@ -810,6 +940,9 @@ class StatusViewModel: ObservableObject {
             if trackArtURL == nil {
                 trackArtURL = currentTrack.trackArtUrl
             }
+            if trackAnimationURL == nil {
+                trackAnimationURL = currentTrack.trackAnimationUrl
+            }
         }
 
         if var scrobbleInfo = currentScrobbleTrackInfo {
@@ -819,7 +952,8 @@ class StatusViewModel: ObservableObject {
             updateScrobbleStatus(progress: playbackProgress * 100)
             let eventType: ScrobbleEvent = isPlaying ? .nowPlaying : .paused
             let artUrl = trackArtURL ?? lastKnownTrack?.trackArtUrl
-            sendEvent(eventType, with: scrobbleInfo, artUrl: artUrl)
+            let animationUrl = trackAnimationURL ?? lastKnownTrack?.trackAnimationUrl
+            sendEvent(eventType, with: scrobbleInfo, artUrl: artUrl, animationUrl: animationUrl)
             sendLastFmNowPlaying(scrobbleInfo)
         }
     }

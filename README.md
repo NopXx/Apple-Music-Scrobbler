@@ -30,6 +30,41 @@ The app sends JSON payloads with `nowPlaying`, `paused`, and `scrobble` events. 
 - A `metadata.trackArtUrl` pointing to cached artwork URLs
 - Connector metadata identifying Apple Music as the source
 
+Example `nowPlaying` payload:
+
+```json
+{
+  "eventName": "nowplaying",
+  "time": 1707480065123,
+  "data": {
+    "song": {
+      "processed": {
+        "artist": "Radiohead",
+        "track": "Subterranean Homesick Alien",
+        "duration": 279
+      },
+      "parsed": {
+        "artist": "Radiohead",
+        "track": "Subterranean Homesick Alien",
+        "duration": 279,
+        "currentTime": 102,
+        "isPlaying": true
+      },
+      "flags": {
+        "isValid": true
+      },
+      "metadata": {
+        "label": "Apple Music Scrobbler",
+        "trackArtUrl": "https://is4-ssl.mzstatic.com/image/thumb/Music/v4/13/72/57/1372570a-19cf-0a62-3d8d-76bbfe2dc93c/source/600x600bb.jpg"
+      },
+      "connector": {
+        "label": "Apple Music"
+      }
+    }
+  }
+}
+```
+
 ## Editing Tracks
 Use the “แก้ไขเพลง...” button in the menu or main window to adjust artist or title. The edit history is stored locally and re-applied next time the song plays. Saving edits immediately sends an updated payload without re-fetching artwork.
 

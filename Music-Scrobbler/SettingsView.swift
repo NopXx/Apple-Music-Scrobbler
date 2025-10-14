@@ -1,15 +1,39 @@
-// SettingsView.swift
 import SwiftUI
 
+// Enum เพื่อระบุหน้าการตั้งค่าแต่ละหน้า
+private enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general = "ทั่วไป"
+    case lastfm = "Last.fm"
+    
+    var id: String { self.rawValue }
+    
+    @ViewBuilder
+    var destinationView: some View {
+        switch self {
+        case .general:
+            GeneralSettingsView()
+        case .lastfm:
+            LastFmSettingsView()
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .general:
+            return "gearshape"
+        case .lastfm:
+            return "music.note.list"
+        }
+    }
+}
+
 struct SettingsView: View {
-    // ใช้ @AppStorage เพื่อให้ค่าที่ตั้งไว้ถูกบันทึกและนำกลับมาใช้ใหม่ได้อัตโนมัติ
-    @AppStorage("webhookURL") private var webhookURL: String = ""
-    @AppStorage("showNotifications") private var showNotifications: Bool = true
-    @AppStorage("scrobblePercent") private var scrobblePercent: Double = 50.0
     @EnvironmentObject private var viewModel: StatusViewModel
+    @State private var selection: SettingsCategory? = .general
 
     var body: some View {
         ZStack {
+            // --- Background --- 
             LinearGradient(
                 gradient: Gradient(colors: viewModel.artworkGradient),
                 startPoint: .topLeading,
@@ -17,128 +41,41 @@ struct SettingsView: View {
             )
             .ignoresSafeArea()
             
-            VStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 18) {
-                    Text("การตั้งค่า Scrobbler")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.white)
-                    
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Webhook URL")
-                            .font(.footnote)
-                            .glassSecondaryText()
-                        TextField("https://example.com/webhook", text: $webhookURL)
-                            .glassTextFieldBackground()
-                            .disableAutocorrection(true)
-                        
-                        Text("Scrobble เมื่อเล่นถึง \(Int(scrobblePercent))%")
-                            .font(.footnote)
-                            .glassSecondaryText()
-                        
-                        Slider(value: $scrobblePercent, in: 1...100, step: 1)
-                            .tint(Color.white.opacity(0.85))
-                    }
-                    
-                    Toggle("แสดงการแจ้งเตือน", isOn: $showNotifications)
-                        .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.85)))
-                        .font(.headline)
-                        .foregroundStyle(Color.white.opacity(0.92))
-
-                    Divider()
-                        .overlay(Color.white.opacity(0.2))
-
-                    Toggle("เชื่อมต่อ Last.fm", isOn: Binding(
-                        get: { viewModel.lastFmToggleState },
-                        set: { viewModel.setLastFmEnabled($0) }
-                    ))
-                        .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.85)))
-                        .font(.headline)
-                        .foregroundStyle(Color.white.opacity(0.92))
-
-                    if viewModel.lastFmToggleState {
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Image(systemName: viewModel.isLastFmAuthorized ? "checkmark.seal.fill" : "exclamationmark.triangle")
-                                    .symbolRenderingMode(.hierarchical)
-                                    .foregroundStyle(viewModel.isLastFmAuthorized ? Color.green.opacity(0.8) : Color.orange.opacity(0.8))
-                                Text(viewModel.lastFmStatusText)
-                                    .font(.footnote)
-                                    .glassSecondaryText()
-                            }
-
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text("Last.fm API Key")
-                                    .font(.footnote)
-                                    .glassSecondaryText()
-                                TextField(
-                                    "Enter API key",
-                                    text: Binding(
-                                        get: { viewModel.lastFmApiKeyInput },
-                                        set: { viewModel.updateLastFmApiKey($0) }
-                                    )
-                                )
-                                .glassTextFieldBackground()
-                                .disableAutocorrection(true)
-
-                                Text("Shared Secret")
-                                    .font(.footnote)
-                                    .glassSecondaryText()
-                                TextField(
-                                    "Enter shared secret",
-                                    text: Binding(
-                                        get: { viewModel.lastFmSharedSecretInput },
-                                        set: { viewModel.updateLastFmSharedSecret($0) }
-                                    )
-                                )
-                                .glassTextFieldBackground()
-                                .disableAutocorrection(true)
-                            }
-
-                            if viewModel.isLastFmAuthInProgress {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                            }
-
-                            HStack(spacing: 12) {
-                                Button("Sign in with Last.fm") {
-                                    viewModel.beginLastFmAuthorization()
-                                }
-                                .glassButton()
-                                .disabled(!viewModel.canStartLastFmAuthorization || viewModel.isLastFmAuthInProgress)
-
-                                Button("Complete Sign In") {
-                                    viewModel.completeLastFmAuthorization()
-                                }
-                                .glassButton()
-                                .disabled(!viewModel.canCompleteLastFmAuthorization || viewModel.isLastFmAuthInProgress)
-
-                                if viewModel.isLastFmAuthorized {
-                                    Button("Sign Out") {
-                                        viewModel.disconnectLastFm()
-                                    }
-                                    .glassButton()
-                                }
-                            }
-
-                            Text("Sign in ด้วยเบราว์เซอร์ Last.fm แล้วกด Complete Sign In เพื่อดึง session key อัตโนมัติ")
-                                .font(.caption2)
-                                .glassSecondaryText()
-                                .fixedSize(horizontal: false, vertical: true)
+            // --- Main Content --- 
+            NavigationView {
+                // --- Sidebar --- 
+                List(selection: $selection) {
+                    ForEach(SettingsCategory.allCases) { category in
+                        NavigationLink(tag: category, selection: $selection) {
+                            category.destinationView
+                        } label: {
+                            SidebarLabelView(category: category, isSelected: selection == category)
                         }
                     }
                 }
-                .glassCard()
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden) // ทำให้ List โปร่งใส
                 
-                Text("แอปจะ Scrobble เมื่อเล่นเพลงถึงเปอร์เซ็นต์ที่กำหนด หรือเล่นไปแล้ว 4 นาที (อย่างใดอย่างหนึ่งถึงก่อน)")
-                    .font(.caption)
-                    .glassSecondaryText()
-                    .multilineTextAlignment(.center)
+                // --- Detail View (จะแสดง view แรกใน list โดยอัตโนมัติ) ---
+                Text("เลือกหมวดหมู่จากด้านซ้าย")
+                    .foregroundStyle(.white)
             }
-            .padding(24)
+            .background(Color.clear) // ทำให้ NavigationView โปร่งใส
         }
         .animation(.spring(), value: viewModel.artworkGradient)
-        .frame(width: 520, height: 600)
+        .frame(minWidth: 680, idealWidth: 680, maxWidth: .infinity, minHeight: 450, idealHeight: 450, maxHeight: .infinity)
+    }
+
+    // Helper struct to simplify the NavigationLink label
+    private struct SidebarLabelView: View {
+        let category: SettingsCategory
+        let isSelected: Bool
+
+        var body: some View {
+            Label(category.rawValue, systemImage: category.icon)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+        }
     }
 }
 

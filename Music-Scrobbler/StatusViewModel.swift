@@ -176,13 +176,14 @@ class StatusViewModel: ObservableObject {
     private func handleNewTrack(_ musicInfo: MusicInfo) {
         print("\n--- ตรวจพบเพลงใหม่: \(musicInfo.trackName) ---")
 
-        let (finalTrackName, finalArtistName) = applyEditHistory(for: musicInfo)
+        let (finalTrackName, finalArtistName, finalAlbumName) = applyEditHistory(for: musicInfo)
 
         currentTrackSignature = (artist: musicInfo.artistName, track: musicInfo.trackName)
 
         var normalizedInfo = musicInfo
         normalizedInfo.trackName = finalTrackName
         normalizedInfo.artistName = finalArtistName
+        normalizedInfo.albumName = finalAlbumName
         currentScrobbleTrackInfo = normalizedInfo
         currentPlaybackTime = formatTime(normalizedInfo.positionSeconds)
         currentTrackDuration = formatTime(normalizedInfo.durationSeconds)
@@ -920,14 +921,15 @@ class StatusViewModel: ObservableObject {
     }
     
     // MARK: - Edit History
-    func saveTrackEdit(original: Track, editedArtist: String, editedTrack: String) {
+    func saveTrackEdit(original: Track, editedArtist: String, editedTrack: String, editedAlbum: String) {
         let originalKey = "\(original.originalArtistName)||||\(original.originalTrackName)"
-        editHistory[originalKey] = ["artist": editedArtist, "track": editedTrack]
+        editHistory[originalKey] = ["artist": editedArtist, "track": editedTrack, "album": editedAlbum]
         saveEditHistoryToFile()
         
         if var currentTrack = self.lastKnownTrack, currentTrack.originalArtistName == original.originalArtistName && currentTrack.originalTrackName == original.originalTrackName {
             currentTrack.artistName = editedArtist
             currentTrack.trackName = editedTrack
+            currentTrack.albumName = editedAlbum
             self.lastKnownTrack = currentTrack
             self.statusMessage = "กำลังเล่น: \(editedTrack) - \(editedArtist)"
             if trackArtURL == nil {
@@ -941,6 +943,7 @@ class StatusViewModel: ObservableObject {
         if var scrobbleInfo = currentScrobbleTrackInfo {
             scrobbleInfo.artistName = editedArtist
             scrobbleInfo.trackName = editedTrack
+            scrobbleInfo.albumName = editedAlbum
             currentScrobbleTrackInfo = scrobbleInfo
             updateScrobbleStatus(progress: playbackProgress * 100)
             let eventType: ScrobbleEvent = isPlaying ? .nowPlaying : .paused
@@ -986,15 +989,16 @@ class StatusViewModel: ObservableObject {
         updateLastFmStatusText()
     }
     
-    private func applyEditHistory(for musicInfo: MusicInfo) -> (trackName: String, artistName: String) {
+    private func applyEditHistory(for musicInfo: MusicInfo) -> (trackName: String, artistName: String, albumName: String) {
         let originalKey = "\(musicInfo.artistName)||||\(musicInfo.trackName)"
         if let editedData = editHistory[originalKey] {
             let finalTrack = editedData["track", default: musicInfo.trackName]
             let finalArtist = editedData["artist", default: musicInfo.artistName]
-            print("พบข้อมูลที่เคยแก้ไข: \(finalTrack) - \(finalArtist)")
-            return (finalTrack, finalArtist)
+            let finalAlbum = editedData["album", default: musicInfo.albumName]
+            print("พบข้อมูลที่เคยแก้ไข: \(finalTrack) - \(finalArtist) - \(finalAlbum)")
+            return (finalTrack, finalArtist, finalAlbum)
         }
-        return (musicInfo.trackName, musicInfo.artistName)
+        return (musicInfo.trackName, musicInfo.artistName, musicInfo.albumName)
     }
     
     private func getEditHistoryFileURL() -> URL? {

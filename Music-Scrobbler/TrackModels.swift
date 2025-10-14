@@ -12,7 +12,7 @@ import Foundation
 struct Track: Codable, Equatable, Hashable {
     var trackName: String
     var artistName: String
-    let albumName: String?
+    var albumName: String?
     let trackArtUrl: URL?
     let trackAnimationUrl: URL?
     // Keep original names for edit history mapping

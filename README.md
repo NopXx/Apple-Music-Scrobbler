@@ -1,4 +1,4 @@
-# Music-Scrobbler
+# Apple Music-Scrobbler
 
 Music-Scrobbler is a macOS app that watches the Apple Music Now Playing feed, normalises track metadata, and sends webhook payloads every time a song starts, updates, or scrobbles. The interface embraces SwiftUI glassmorphism so it blends with macOS Sonoma while surfacing real-time playback status.
 
@@ -10,6 +10,7 @@ Music-Scrobbler is a macOS app that watches the Apple Music Now Playing feed, no
 - **Instant webhook payloads** for now playing, paused, and scrobble events.
 - **Custom scrobble threshold** (percentage or 4-minute fallback) stored in `UserDefaults`.
 - **Menu bar controls** to view details, refresh playback, edit tracks, or quit quickly.
+- **Built-in Last.fm scrobbling** with a Sign in with Last.fm flow.
 
 ## Requirements
 - macOS 13.0 or later (tested on Sonoma)
@@ -22,6 +23,12 @@ Music-Scrobbler is a macOS app that watches the Apple Music Now Playing feed, no
 3. Grant notification permission on first launch so the app can alert you to new tracks.
 4. Configure your webhook URL and scrobble threshold from the Settings window.
 5. Start Apple Music playback; the menu extra and main window will show the glass UI with live data.
+
+## Last.fm Setup
+1. Create a Last.fm API application to obtain your API key and shared secret.
+2. In the app’s Settings window, enable “เชื่อมต่อ Last.fm”, paste the API key and shared secret, then click **Sign in with Last.fm**.
+3. Authorize the app in the browser, return to the app, and click **Complete Sign In**. Your session key is stored automatically.
+4. Music-Scrobbler will start sending `track.updateNowPlaying` and `track.scrobble` calls with your Last.fm account.
 
 ## Webhook Payloads
 The app sends JSON payloads with `nowPlaying`, `paused`, and `scrobble` events. Each payload contains:
@@ -41,6 +48,7 @@ Example `nowPlaying` payload:
       "processed": {
         "artist": "Radiohead",
         "track": "Subterranean Homesick Alien",
+        "album": "album",
         "duration": 279
       },
       "parsed": {

@@ -41,6 +41,7 @@ struct Music_ScrobblerApp: App {
         }
         Settings {
             SettingsView()
+                .environmentObject(statusViewModel)
         }
         
         // 1. สร้าง Scene ใหม่สำหรับหน้าต่างแก้ไขข้อมูล
@@ -299,13 +300,13 @@ struct MainWindowView: View {
                 .glassCard()
 
                 HStack {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(viewModel.statusMessage)
                             .glassSecondaryText()
                         Text(viewModel.scrobbleStatusText)
-                                    .font(.caption)
-                                    .glassSecondaryText()
-                    }           
+                            .font(.caption)
+                            .glassSecondaryText()
+                    }
                     Spacer()
                     SettingsLink {
                         Label("ตั้งค่า...", systemImage: "gearshape")

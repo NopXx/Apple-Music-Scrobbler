@@ -261,10 +261,11 @@ struct MainWindowView: View {
                 }
             }
             .padding(12)
-            .glassEffect(
-                .regular.tint(Color(viewModel.artworkGradient.first ?? .clear).opacity(0.35))
-                    .interactive(),
-                in: .rect(cornerRadius: 0),
+            .adaptiveGlassEffect(
+                tint: viewModel.artworkGradient.first ?? .clear,
+                tintOpacity: 0.35,
+                cornerRadius: 0,
+                shadowOpacity: 0.08
             )
         } else {
                 VStack(spacing: 15) {

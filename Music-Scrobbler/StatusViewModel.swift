@@ -18,6 +18,7 @@ class StatusViewModel: ObservableObject {
     @Published var statusMessage: String = "กำลังโหลด..."
     @Published var trackArtURL: URL?
     @Published var trackAnimationURL: URL?
+    @Published var trackMasterTallURL: URL?
     @Published var isPlaying: Bool = false
     @Published var artworkGradient: [Color] = [
         Color(red: 0.12, green: 0.17, blue: 0.3),
@@ -55,14 +56,34 @@ class StatusViewModel: ObservableObject {
     @Published private(set) var playbackProgress: Double = 0
     @Published private(set) var scrobbleStatusText: String = "ยังไม่มีการ Scrobble"
     private var hasBeenScrobbled = false
+    private var pendingResumeProgress: (position: Double, timestamp: Date)?
     private struct TrackMediaURLs {
         let artwork: URL?
         let animation: URL?
+        let masterTall: URL?
     }
 
     private struct AnimatedArtworkResponse: Decodable {
         let animatedUrl: String?
         let animatedUrl1080: String?
+    }
+
+    private struct CoverArtResponse: Decodable {
+        struct UncompressedCover: Decodable {
+            let url: String?
+        }
+        struct Master: Decodable {
+            let tall: String?
+            let square: String?
+        }
+
+        let uncompressedCoverArt: UncompressedCover?
+        let master: Master?
+
+        private enum CodingKeys: String, CodingKey {
+            case uncompressedCoverArt = "uncompressed_cover_art"
+            case master
+        }
     }
 
     private var trackMediaCache: [String: TrackMediaURLs] = [:]
@@ -138,9 +159,26 @@ class StatusViewModel: ObservableObject {
 
     /// อ่านสถานะล่าสุดจาก Apple Music แล้วกระจายไปยังเมธอดย่อยที่เหมาะสม
     func checkMusicStatus() {
-        guard let musicInfo = getMusicInfoFromNotifications() else {
+        guard var musicInfo = getMusicInfoFromNotifications() else {
             handlePlaybackStopped()
             return
+        }
+
+        if let resumeProgress = pendingResumeProgress,
+           let signature = currentTrackSignature,
+           signature.track == musicInfo.trackName,
+           signature.artist == musicInfo.artistName {
+
+            let elapsed = max(Date().timeIntervalSince(resumeProgress.timestamp), 0)
+            let expectedPosition = min(resumeProgress.position + elapsed, musicInfo.durationSeconds)
+            let positionDelta = expectedPosition - musicInfo.positionSeconds
+
+            if expectedPosition > 0,
+               positionDelta > 0.5,
+               positionDelta <= 10 {
+                musicInfo.positionSeconds = expectedPosition
+            }
+            pendingResumeProgress = nil
         }
 
         if shouldHandleAsNewTrack(latest: musicInfo) {
@@ -152,17 +190,48 @@ class StatusViewModel: ObservableObject {
         evaluateScrobble(using: musicInfo)
     }
 
-    /// จัดการกรณีหยุดเล่นให้ส่ง event และรีเซ็ต state ให้สะอาด
+    /// จัดการกรณีหยุดเล่น หรือหยุดชั่วคราว
     private func handlePlaybackStopped() {
-        if let currentInfo = currentScrobbleTrackInfo {
+        let isPaused = nowPlayingMonitor.isCurrentlyPaused()
+        let currentInfo = currentScrobbleTrackInfo
+
+        if isPaused {
+            guard let currentInfo else {
+                stopPlaybackDisplayTimer()
+                isPlaying = false
+                return
+            }
+            pendingResumeProgress = (position: currentInfo.positionSeconds, timestamp: Date())
+
+            if isPlaying {
+                print("--- เพลงหยุดชั่วคราว ---")
+                sendEvent(
+                    .paused,
+                    with: currentInfo,
+                    artUrl: trackArtURL,
+                    animationUrl: trackAnimationURL,
+                    tallVideoUrl: trackMasterTallURL
+                )
+            }
+
+            isPlaying = false
+            stopPlaybackDisplayTimer()
+            statusMessage = "หยุดชั่วคราว: \(currentInfo.trackName)"
+            scrobbleStatusText = hasBeenScrobbled ? "Scrobbled แล้ว" : "หยุดชั่วคราว"
+            return
+        }
+
+        if let currentInfo {
             print("--- เพลงหยุดเล่น ---")
             sendEvent(
                 .paused,
                 with: currentInfo,
                 artUrl: trackArtURL,
-                animationUrl: trackAnimationURL
+                animationUrl: trackAnimationURL,
+                tallVideoUrl: trackMasterTallURL
             )
         }
+        pendingResumeProgress = nil
         resetState()
     }
 
@@ -179,6 +248,7 @@ class StatusViewModel: ObservableObject {
         let (finalTrackName, finalArtistName, finalAlbumName) = applyEditHistory(for: musicInfo)
 
         currentTrackSignature = (artist: musicInfo.artistName, track: musicInfo.trackName)
+        pendingResumeProgress = nil
 
         var normalizedInfo = musicInfo
         normalizedInfo.trackName = finalTrackName
@@ -196,6 +266,7 @@ class StatusViewModel: ObservableObject {
         isPlaying = true
         trackArtURL = nil
         trackAnimationURL = nil
+        trackMasterTallURL = nil
         artworkGradient = fallbackGradient
         statusMessage = "กำลังเล่น: \(finalTrackName) - \(finalArtistName)"
         updateScrobbleStatus(progress: 0)
@@ -214,6 +285,7 @@ class StatusViewModel: ObservableObject {
                 let artworkUrl = mediaURLs?.artwork
                 self.trackArtURL = artworkUrl
                 self.trackAnimationURL = mediaURLs?.animation
+                self.trackMasterTallURL = mediaURLs?.masterTall
 
                 let updatedTrack = Track(
                     trackName: finalTrackName,
@@ -221,6 +293,7 @@ class StatusViewModel: ObservableObject {
                     albumName: musicInfo.albumName,
                     trackArtUrl: artworkUrl,
                     trackAnimationUrl: mediaURLs?.animation,
+                    trackMasterTallUrl: mediaURLs?.masterTall,
                     originalTrackName: musicInfo.trackName,
                     originalArtistName: musicInfo.artistName
                 )
@@ -237,7 +310,8 @@ class StatusViewModel: ObservableObject {
                         .nowPlaying,
                         with: infoForPayload,
                         artUrl: artworkUrl,
-                        animationUrl: mediaURLs?.animation
+                        animationUrl: mediaURLs?.animation,
+                        tallVideoUrl: mediaURLs?.masterTall
                     )
                     self.sendLastFmNowPlaying(infoForPayload)
                 }
@@ -256,6 +330,9 @@ class StatusViewModel: ObservableObject {
         currentTrackDuration = formatTime(info.durationSeconds)
         playbackProgress = progressValue(for: info)
         playbackLastUpdate = Date()
+        if playbackDisplayTimer == nil && isPlaying {
+            startPlaybackDisplayTimer()
+        }
 
         let percent = playbackPercent(for: info, duration: info.durationSeconds)
         updatePlaybackStatus(displayPercent: percent)
@@ -272,7 +349,8 @@ class StatusViewModel: ObservableObject {
                 .scrobble,
                 with: info,
                 artUrl: trackArtURL,
-                animationUrl: trackAnimationURL
+                animationUrl: trackAnimationURL,
+                tallVideoUrl: trackMasterTallURL
             )
             sendLastFmScrobble(info)
         }
@@ -601,10 +679,12 @@ class StatusViewModel: ObservableObject {
         currentTrackSignature = nil
         playbackLastUpdate = nil
         hasBeenScrobbled = false
+        pendingResumeProgress = nil
         isPlaying = false
         statusMessage = "หยุดเล่น หรือไม่ได้เปิด Apple Music"
         trackArtURL = nil
         trackAnimationURL = nil
+        trackMasterTallURL = nil
         artworkGradient = fallbackGradient
         lastKnownTrack = nil
         currentPlaybackTime = "0:00"
@@ -704,6 +784,7 @@ class StatusViewModel: ObservableObject {
             let searchResult = try JSONDecoder().decode(iTunesSearchResult.self, from: data)
             if let firstResult = searchResult.results.first {
                 var animationUrl: URL?
+                var masterTallUrl: URL?
 
                 var artworkUrl: URL?
                 if let artworkString = firstResult.artworkUrl100 {
@@ -712,14 +793,28 @@ class StatusViewModel: ObservableObject {
                 }
 
                 if let albumUrlString = firstResult.collectionViewUrl,
-                   let albumUrl = URL(string: albumUrlString),
-                   let animatedResponse = await fetchAnimatedArtwork(for: albumUrl) {
-                    animationUrl = animatedResponse.animatedUrl1080
-                        .flatMap { URL(string: $0) }
-                        ?? animatedResponse.animatedUrl.flatMap { URL(string: $0) }
+                   let albumUrl = URL(string: albumUrlString) {
+                    async let animatedResponse = fetchAnimatedArtwork(for: albumUrl)
+                    async let coverResponse = fetchCoverDetails(for: albumUrl)
+
+                    let (animatedArtwork, coverDetails) = await (animatedResponse, coverResponse)
+
+                    if let coverDetails,
+                       let hiRes = coverDetails.uncompressedCoverArt?.url,
+                       let hiResUrl = URL(string: hiRes) {
+                        artworkUrl = hiResUrl
+                    }
+
+                    masterTallUrl = coverDetails?.master?.tall.flatMap { URL(string: $0) }
+
+                    if let animatedArtwork {
+                        animationUrl = animatedArtwork.animatedUrl1080
+                            .flatMap { URL(string: $0) }
+                            ?? animatedArtwork.animatedUrl.flatMap { URL(string: $0) }
+                    }
                 }
 
-                let mediaURLs = TrackMediaURLs(artwork: artworkUrl, animation: animationUrl)
+                let mediaURLs = TrackMediaURLs(artwork: artworkUrl, animation: animationUrl, masterTall: masterTallUrl)
                 trackMediaCache[cacheKey] = mediaURLs
                 return mediaURLs
             }
@@ -760,6 +855,36 @@ class StatusViewModel: ObservableObject {
             return nil
         }
     }
+
+    private func fetchCoverDetails(for albumUrl: URL) async -> CoverArtResponse? {
+        var components = URLComponents(string: "https://api.aritra.ovh/v1/covers")
+        components?.queryItems = [
+            URLQueryItem(name: "url", value: albumUrl.absoluteString)
+        ]
+
+        guard let url = components?.url else {
+            print("Invalid cover API URL components for album: \(albumUrl)")
+            return nil
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                if let http = response as? HTTPURLResponse {
+                    print("Cover API returned status: \(http.statusCode)")
+                }
+                return nil
+            }
+
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(CoverArtResponse.self, from: data)
+        } catch {
+            print("Error fetching cover details: \(error)")
+            return nil
+        }
+    }
     
     private func sendToWebhook(payload: [String: Any]) {
         guard !webhookURL.isEmpty, let url = URL(string: webhookURL) else {
@@ -794,8 +919,20 @@ class StatusViewModel: ObservableObject {
         }
     }
 
-    private func sendEvent(_ event: ScrobbleEvent, with musicInfo: MusicInfo, artUrl: URL?, animationUrl: URL?) {
-        let payload = buildWebhookPayload(event: event, musicInfo: musicInfo, artUrl: artUrl, animationUrl: animationUrl)
+    private func sendEvent(
+        _ event: ScrobbleEvent,
+        with musicInfo: MusicInfo,
+        artUrl: URL?,
+        animationUrl: URL?,
+        tallVideoUrl: URL? = nil
+    ) {
+        let payload = buildWebhookPayload(
+            event: event,
+            musicInfo: musicInfo,
+            artUrl: artUrl,
+            animationUrl: animationUrl,
+            tallVideoUrl: tallVideoUrl
+        )
         sendToWebhook(payload: payload)
     }
     
@@ -833,15 +970,20 @@ class StatusViewModel: ObservableObject {
         event: ScrobbleEvent,
         musicInfo: MusicInfo,
         artUrl: URL? = nil,
-        animationUrl: URL? = nil
+        animationUrl: URL? = nil,
+        tallVideoUrl: URL? = nil
     ) -> [String: Any] {
         let animationString = animationUrl?.absoluteString ?? ""
         let artworkString = artUrl?.absoluteString ?? ""
+        let tallVideoString = tallVideoUrl?.absoluteString ?? ""
         let primaryMediaUrl: String
         let primaryMediaType: String
 
         if !animationString.isEmpty {
             primaryMediaUrl = animationString
+            primaryMediaType = "video"
+        } else if !tallVideoString.isEmpty {
+            primaryMediaUrl = tallVideoString
             primaryMediaType = "video"
         } else if !artworkString.isEmpty {
             primaryMediaUrl = artworkString
@@ -874,6 +1016,7 @@ class StatusViewModel: ObservableObject {
                         "label": "Apple Music Scrobbler",
                         "trackArtUrl": artworkString,
                         "animationUrl": animationString,
+                        "masterTallUrl": tallVideoString,
                         "primaryMediaUrl": primaryMediaUrl,
                         "primaryMediaType": primaryMediaType
                     ],
@@ -938,6 +1081,9 @@ class StatusViewModel: ObservableObject {
             if trackAnimationURL == nil {
                 trackAnimationURL = currentTrack.trackAnimationUrl
             }
+            if trackMasterTallURL == nil {
+                trackMasterTallURL = currentTrack.trackMasterTallUrl
+            }
         }
 
         if var scrobbleInfo = currentScrobbleTrackInfo {
@@ -949,7 +1095,8 @@ class StatusViewModel: ObservableObject {
             let eventType: ScrobbleEvent = isPlaying ? .nowPlaying : .paused
             let artUrl = trackArtURL ?? lastKnownTrack?.trackArtUrl
             let animationUrl = trackAnimationURL ?? lastKnownTrack?.trackAnimationUrl
-            sendEvent(eventType, with: scrobbleInfo, artUrl: artUrl, animationUrl: animationUrl)
+            let tallUrl = trackMasterTallURL ?? lastKnownTrack?.trackMasterTallUrl
+            sendEvent(eventType, with: scrobbleInfo, artUrl: artUrl, animationUrl: animationUrl, tallVideoUrl: tallUrl)
             sendLastFmNowPlaying(scrobbleInfo)
         }
     }

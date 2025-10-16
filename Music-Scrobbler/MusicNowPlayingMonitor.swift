@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import AppKit
 
 final class MusicNowPlayingMonitor {
     private struct Snapshot {
@@ -75,14 +76,66 @@ final class MusicNowPlayingMonitor {
 
     private func updateSnapshot(with userInfo: [AnyHashable: Any], capturedAt captureDate: Date) {
         let playerState = (userInfo["Player State"] as? String) ?? ""
+        let previousSnapshot = snapshot
 
         let trackName = (userInfo["Name"] as? String) ?? snapshot?.trackName ?? ""
         let artistName = (userInfo["Artist"] as? String) ?? snapshot?.artistName ?? ""
         let albumName = (userInfo["Album"] as? String) ?? snapshot?.albumName ?? ""
         let parsedDuration = Self.parseDuration(userInfo["Total Time"])
-        let duration = parsedDuration > 0 ? parsedDuration : (snapshot?.durationSeconds ?? 0)
-        let position = Self.parsePosition(userInfo["Player Position"])
-        let isPlaying = playerState == "Playing"
+        var duration = parsedDuration > 0 ? parsedDuration : (snapshot?.durationSeconds ?? 0)
+        var position = Self.parsePosition(userInfo["Player Position"])
+        var isPlaying = playerState == "Playing"
+
+        let isSameTrack = {
+            guard let previousSnapshot else { return false }
+            return previousSnapshot.trackName == trackName &&
+            previousSnapshot.artistName == artistName &&
+            previousSnapshot.albumName == albumName &&
+            abs(previousSnapshot.durationSeconds - duration) < 1.0
+        }()
+
+        if let previousSnapshot, isSameTrack {
+            let timeSinceLast = captureDate.timeIntervalSince(previousSnapshot.captureDate)
+            let previousPosition = previousSnapshot.positionSeconds
+            let expectedProgress = duration > 0
+                ? min(previousPosition + max(timeSinceLast, 0), duration)
+                : previousPosition + max(timeSinceLast, 0)
+
+            if position <= 1.0 && previousSnapshot.positionSeconds > 1.0 {
+                if let preciseState = fetchPreciseStateFromAppleMusic() {
+                    if preciseState.position > 0 {
+                        position = preciseState.position
+                    }
+                    if preciseState.duration > 0 {
+                        duration = preciseState.duration
+                    }
+                    switch preciseState.state {
+                    case "playing":
+                        isPlaying = true
+                    case "paused":
+                        isPlaying = false
+                    default:
+                        break
+                    }
+                } else {
+                    position = max(position, previousSnapshot.positionSeconds)
+                }
+            }
+
+            if position <= 1.0 {
+                if previousSnapshot.isPlaying && isPlaying && timeSinceLast < 2 {
+                    position = max(position, expectedProgress)
+                } else if previousSnapshot.isPlaying && !isPlaying {
+                    position = max(position, expectedProgress)
+                } else if !previousSnapshot.isPlaying && isPlaying {
+                    position = max(position, expectedProgress)
+                } else if !previousSnapshot.isPlaying && !isPlaying {
+                    position = max(position, previousPosition)
+                }
+            } else if position + 0.5 < previousPosition && timeSinceLast < 2 {
+                position = max(position, expectedProgress)
+            }
+        }
 
         guard !trackName.isEmpty, !artistName.isEmpty else {
             snapshot = nil
@@ -128,5 +181,47 @@ final class MusicNowPlayingMonitor {
         }
 
         return 0
+    }
+
+    private func fetchPreciseStateFromAppleMusic() -> (state: String, position: Double, duration: Double)? {
+        let scriptSource = """
+        tell application "Music"
+            if it is running then
+                set playerState to player state as string
+                if playerState is "stopped" then
+                    return {"stopped", 0, 0}
+                end if
+                try
+                    set playerPosition to player position
+                    set trackDuration to duration of current track
+                    return {playerState, playerPosition, trackDuration}
+                on error
+                    return {"error", 0, 0}
+                end try
+            else
+                return {"stopped", 0, 0}
+            end if
+        end tell
+        """
+
+        guard let script = NSAppleScript(source: scriptSource) else { return nil }
+        var errorDict: NSDictionary?
+        let result = script.executeAndReturnError(&errorDict)
+        if errorDict != nil {
+            return nil
+        }
+
+        guard result.numberOfItems == 3,
+              let state = result.atIndex(1)?.stringValue else {
+            return nil
+        }
+
+        let position = result.atIndex(2)?.doubleValue ?? 0
+        let duration = result.atIndex(3)?.doubleValue ?? 0
+        #if DEBUG
+        print("AppleScript precise state -> \(state.lowercased()) @ \(position)s / \(duration)s")
+        #endif
+        print("AppleScript precise state -> \(state.lowercased()) @ \(position)s / \(duration)s")
+        return (state.lowercased(), position, duration)
     }
 }

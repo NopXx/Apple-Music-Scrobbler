@@ -15,6 +15,7 @@ struct Track: Codable, Equatable, Hashable {
     var albumName: String?
     let trackArtUrl: URL?
     let trackAnimationUrl: URL?
+    let trackMasterTallUrl: URL?
     // Keep original names for edit history mapping
     let originalTrackName: String
     let originalArtistName: String
@@ -24,6 +25,7 @@ struct Track: Codable, Equatable, Hashable {
         case artistName = "artist_name"
         case trackArtUrl = "track_art_url"
         case trackAnimationUrl = "track_animation_url"
+        case trackMasterTallUrl = "track_master_tall_url"
         case albumName = "album_name"
         case originalTrackName = "original_track_name"
         case originalArtistName = "original_artist_name"

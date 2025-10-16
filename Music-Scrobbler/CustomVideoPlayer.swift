@@ -34,7 +34,7 @@ class PlayerNSView: NSView {
     private func setupLayer() {
         wantsLayer = true
         layer?.addSublayer(playerLayer)
-        playerLayer.videoGravity = .resizeAspectFill
+        playerLayer.videoGravity = .resizeAspect
     }
 
     var player: AVPlayer? {

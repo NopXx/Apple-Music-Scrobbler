@@ -16,27 +16,29 @@ extension View {
             .background(.ultraThinMaterial, in: shape)
             .overlay(
             shape
-                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                .stroke(Color.primary.opacity(0.18), lineWidth: 0.8)
         )
         .shadow(color: Color.black.opacity(shadowOpacity), radius: 18, x: 0, y: 12)
     }
     
     func glassSecondaryText() -> some View {
-        foregroundStyle(Color.white.opacity(0.72))
+        foregroundStyle(Color.primary.opacity(0.72))
     }
 
     func glassControl(cornerRadius: CGFloat = 16) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let textColor = Color.primary.opacity(0.92)
+        let strokeColor = Color.primary.opacity(0.22)
 
         return self
             .font(.headline)
-            .foregroundStyle(Color.white.opacity(0.92))
+            .foregroundStyle(textColor)
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
             .background(.ultraThinMaterial, in: shape)
             .overlay(
             shape
-                .stroke(Color.white.opacity(0.22), lineWidth: 0.8)
+                .stroke(strokeColor, lineWidth: 0.8)
         )
         .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 6)
     }
@@ -56,13 +58,13 @@ extension TextField {
 
         return self
             .textFieldStyle(.plain)
-            .foregroundStyle(Color.white.opacity(0.92))
+            .foregroundStyle(Color.primary.opacity(0.92))
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(.ultraThinMaterial, in: shape)
             .overlay(
             shape
-                .stroke(Color.white.opacity(0.15), lineWidth: 0.6)
+                .stroke(Color.primary.opacity(0.15), lineWidth: 0.6)
         )
         .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 5)
     }

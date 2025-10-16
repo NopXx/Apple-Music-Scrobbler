@@ -6,14 +6,14 @@ struct LastFmSettingsView: View {
 
     var body: some View {
         Form {
-            Section(header: Text("Last.fm").foregroundStyle(Color.white.opacity(0.8))) {
+            Section(header: Text("Last.fm").foregroundStyle(Color.primary.opacity(0.8))) {
                 Toggle("เชื่อมต่อ Last.fm", isOn: Binding(
                     get: { viewModel.lastFmToggleState },
                     set: { viewModel.setLastFmEnabled($0) }
                 ))
-                    .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.85)))
+                    .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
                     .font(.headline)
-                    .foregroundStyle(Color.white.opacity(0.92))
+                    .foregroundStyle(Color.primary.opacity(0.92))
 
                 if viewModel.lastFmToggleState {
                     VStack(alignment: .leading, spacing: 12) {

@@ -22,10 +22,10 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 Image(systemName: "music.note.list")
                     .font(.system(size: 44))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(Color.primary)
                 Text("Apple Music Scrobbler")
                     .font(.headline)
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(Color.primary)
                 Text("Scrobble เพลงที่คุณชอบด้วยลุคกระจกจาก SwiftUI")
                     .font(.subheadline)
                     .glassSecondaryText()

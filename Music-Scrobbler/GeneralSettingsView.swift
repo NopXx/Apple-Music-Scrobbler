@@ -8,7 +8,10 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section(header: Text("การเชื่อมต่อ").foregroundStyle(Color.white.opacity(0.8)), footer: Text("รับการแจ้งเตือน event ของเพลงไปยัง URL ที่คุณกำหนด").foregroundStyle(Color.white.opacity(0.7))) {
+            Section(
+                header: Text("การเชื่อมต่อ").foregroundStyle(Color.primary.opacity(0.8)),
+                footer: Text("รับการแจ้งเตือน event ของเพลงไปยัง URL ที่คุณกำหนด").foregroundStyle(Color.primary.opacity(0.7))
+            ) {
                 LabeledContent {
                     TextField("https://example.com/webhook", text: $webhookURL)
                         .glassTextFieldBackground()
@@ -19,19 +22,19 @@ struct GeneralSettingsView: View {
                 }
             }
             
-            Section(header: Text("การ Scrobble").foregroundStyle(Color.white.opacity(0.8))) {
+            Section(header: Text("การ Scrobble").foregroundStyle(Color.primary.opacity(0.8))) {
                 VStack(alignment: .leading) {
                     Text("Scrobble เมื่อเล่นถึง \(Int(scrobblePercent))%")
                         .font(.footnote)
                         .glassSecondaryText()
                     Slider(value: $scrobblePercent, in: 1...100, step: 1)
-                        .tint(Color.white.opacity(0.85))
+                        .tint(Color.accentColor)
                 }
                 
                 Toggle("แสดงการแจ้งเตือนเมื่อเล่นเพลงใหม่", isOn: $showNotifications)
-                    .toggleStyle(SwitchToggleStyle(tint: Color.white.opacity(0.85)))
+                    .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
                     .font(.headline)
-                    .foregroundStyle(Color.white.opacity(0.92))
+                    .foregroundStyle(Color.primary.opacity(0.92))
             }
         }
         .formStyle(.grouped)

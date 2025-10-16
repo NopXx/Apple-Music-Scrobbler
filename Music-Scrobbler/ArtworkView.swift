@@ -46,8 +46,7 @@ struct ArtworkView: View {
     private var placeholderSymbol: some View {
         Image(systemName: "music.note")
             .font(.system(size: 48))
-            .foregroundStyle(Color.white.opacity(0.7))
+            .foregroundStyle(Color.primary.opacity(0.7))
     }
 }
-
 

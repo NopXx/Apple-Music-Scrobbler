@@ -15,8 +15,13 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: swift build -v
-    - name: Run tests
-      run: swift test -v
+      - uses: actions/checkout@v4
+      - name: Build app
+        run: |
+          xcodebuild \
+            -project Music-Scrobbler.xcodeproj \
+            -scheme "Music-Scrobbler" \
+            -configuration Release \
+            -sdk macosx \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            build

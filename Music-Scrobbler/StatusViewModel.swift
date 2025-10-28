@@ -11,6 +11,7 @@ import UserNotifications
 import AppKit
 import CoreImage
 import CryptoKit
+import UniformTypeIdentifiers
 
 // ViewModel สำหรับจัดการสถานะและตรรกะการดึงข้อมูล
 @MainActor // ทำให้ property และ method ทั้งหมดในคลาสนี้ทำงานบน Main Thread โดยอัตโนมัติ
@@ -19,6 +20,9 @@ class StatusViewModel: ObservableObject {
     @Published var trackArtURL: URL?
     @Published var trackAnimationURL: URL?
     @Published var trackMasterTallURL: URL?
+    @Published var trackTrackURL: URL?
+    @Published var trackAlbumURL: URL?
+    @Published var trackArtistURL: URL?
     @Published var isPlaying: Bool = false
     @Published var artworkGradient: [Color] = [
         Color(red: 0.12, green: 0.17, blue: 0.3),
@@ -61,6 +65,9 @@ class StatusViewModel: ObservableObject {
         let artwork: URL?
         let animation: URL?
         let masterTall: URL?
+        let track: URL?
+        let album: URL?
+        let artist: URL?
     }
 
     private struct AnimatedArtworkResponse: Decodable {
@@ -205,12 +212,16 @@ class StatusViewModel: ObservableObject {
 
             if isPlaying {
                 print("--- เพลงหยุดชั่วคราว ---")
+                let links = currentTrackLinks()
                 sendEvent(
                     .paused,
                     with: currentInfo,
                     artUrl: trackArtURL,
                     animationUrl: trackAnimationURL,
-                    tallVideoUrl: trackMasterTallURL
+                    tallVideoUrl: trackMasterTallURL,
+                    trackUrl: links.track,
+                    albumUrl: links.album,
+                    artistUrl: links.artist
                 )
             }
 
@@ -223,12 +234,16 @@ class StatusViewModel: ObservableObject {
 
         if let currentInfo {
             print("--- เพลงหยุดเล่น ---")
+            let links = currentTrackLinks()
             sendEvent(
                 .paused,
                 with: currentInfo,
                 artUrl: trackArtURL,
                 animationUrl: trackAnimationURL,
-                tallVideoUrl: trackMasterTallURL
+                tallVideoUrl: trackMasterTallURL,
+                trackUrl: links.track,
+                albumUrl: links.album,
+                artistUrl: links.artist
             )
         }
         pendingResumeProgress = nil
@@ -267,6 +282,9 @@ class StatusViewModel: ObservableObject {
         trackArtURL = nil
         trackAnimationURL = nil
         trackMasterTallURL = nil
+        trackTrackURL = nil
+        trackAlbumURL = nil
+        trackArtistURL = nil
         artworkGradient = fallbackGradient
         statusMessage = "กำลังเล่น: \(finalTrackName) - \(finalArtistName)"
         updateScrobbleStatus(progress: 0)
@@ -277,7 +295,7 @@ class StatusViewModel: ObservableObject {
             guard let self else { return }
             let mediaURLs = await self.getTrackMediaURLs(
                 artist: finalArtistName,
-                album: musicInfo.albumName,
+                album: finalAlbumName,
                 track: finalTrackName
             )
 
@@ -286,14 +304,20 @@ class StatusViewModel: ObservableObject {
                 self.trackArtURL = artworkUrl
                 self.trackAnimationURL = mediaURLs?.animation
                 self.trackMasterTallURL = mediaURLs?.masterTall
+                self.trackTrackURL = mediaURLs?.track
+                self.trackAlbumURL = mediaURLs?.album
+                self.trackArtistURL = mediaURLs?.artist
 
                 let updatedTrack = Track(
                     trackName: finalTrackName,
                     artistName: finalArtistName,
-                    albumName: musicInfo.albumName,
+                    albumName: finalAlbumName,
                     trackArtUrl: artworkUrl,
                     trackAnimationUrl: mediaURLs?.animation,
                     trackMasterTallUrl: mediaURLs?.masterTall,
+                    trackUrl: mediaURLs?.track,
+                    albumUrl: mediaURLs?.album,
+                    artistUrl: mediaURLs?.artist,
                     originalTrackName: musicInfo.trackName,
                     originalArtistName: musicInfo.artistName
                 )
@@ -311,7 +335,10 @@ class StatusViewModel: ObservableObject {
                         with: infoForPayload,
                         artUrl: artworkUrl,
                         animationUrl: mediaURLs?.animation,
-                        tallVideoUrl: mediaURLs?.masterTall
+                        tallVideoUrl: mediaURLs?.masterTall,
+                        trackUrl: mediaURLs?.track,
+                        albumUrl: mediaURLs?.album,
+                        artistUrl: mediaURLs?.artist
                     )
                     self.sendLastFmNowPlaying(infoForPayload)
                 }
@@ -345,12 +372,16 @@ class StatusViewModel: ObservableObject {
             statusMessage = "Scrobbled: \(displayNames().track)"
             scrobbleStatusText = "Scrobbled แล้ว"
 
+            let links = currentTrackLinks()
             sendEvent(
                 .scrobble,
                 with: info,
                 artUrl: trackArtURL,
                 animationUrl: trackAnimationURL,
-                tallVideoUrl: trackMasterTallURL
+                tallVideoUrl: trackMasterTallURL,
+                trackUrl: links.track,
+                albumUrl: links.album,
+                artistUrl: links.artist
             )
             sendLastFmScrobble(info)
         }
@@ -685,6 +716,9 @@ class StatusViewModel: ObservableObject {
         trackArtURL = nil
         trackAnimationURL = nil
         trackMasterTallURL = nil
+        trackTrackURL = nil
+        trackAlbumURL = nil
+        trackArtistURL = nil
         artworkGradient = fallbackGradient
         lastKnownTrack = nil
         currentPlaybackTime = "0:00"
@@ -752,28 +786,36 @@ class StatusViewModel: ObservableObject {
 
     // MARK: - Network and Data Handling
     private func getTrackMediaURLs(artist: String, album: String, track: String) async -> TrackMediaURLs? {
-        let cacheKey = "\(artist)||\(album)||\(track)"
+        let cacheKey = "\(artist),\(album),\(track)"
         if let cached = trackMediaCache[cacheKey] {
             return cached
         }
         
         var components = URLComponents(string: "https://itunes.apple.com/search")!
-        let queryTerm = [track, artist, album]
+        let normalizedTerms = [track, artist, album]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .joined(separator: " ")
+            .map { term in
+                term
+                    .split(whereSeparator: { $0.isWhitespace })
+                    .map(String.init)
+                    .joined(separator: "+")
+            }
+        let queryTerm = normalizedTerms.joined(separator: ",")
 
         let trimmedTrack = track.trimmingCharacters(in: .whitespacesAndNewlines)
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "term", value: queryTerm.isEmpty ? "\(artist) \(album)" : queryTerm),
             URLQueryItem(name: "media", value: "music"),
             URLQueryItem(name: "entity", value: "musicTrack"),
-            URLQueryItem(name: "limit", value: "1")
+            URLQueryItem(name: "limit", value: "10")
         ]
 
         if !trimmedTrack.isEmpty {
             queryItems.append(URLQueryItem(name: "attribute", value: "songTerm"))
         }
+
+        print("Query: \(queryTerm)")
 
         components.queryItems = queryItems
         
@@ -782,7 +824,23 @@ class StatusViewModel: ObservableObject {
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let searchResult = try JSONDecoder().decode(iTunesSearchResult.self, from: data)
-            if let firstResult = searchResult.results.first {
+
+            // ค้นหาผลลัพธ์ที่ตรงกับข้อมูลที่ส่งไปมากที่สุด แทนที่จะใช้แค่ตัวแรก
+            let bestResult = searchResult.results.first { item in
+                // เปรียบเทียบแบบ case-insensitive เพื่อความยืดหยุ่น
+                let artistMatch = item.artistName?.lowercased() == artist.lowercased()
+                let trackMatch = item.trackName?.lowercased() == track.lowercased()
+                // เปลี่ยนจากการเปรียบเทียบตรงๆ (==) เป็นการเช็คว่าชื่ออัลบั้มจาก API "มีคำว่า" ที่เราค้นหาหรือไม่ (contains)
+                // เพื่อให้ยืดหยุ่นกับชื่ออัลบั้มที่มี (Deluxe Edition) หรือส่วนขยายอื่นๆ
+                let albumMatch = !album.isEmpty ? (item.collectionName?.lowercased().contains(album.lowercased()) == true) : true
+                
+                return artistMatch && trackMatch && albumMatch
+            }
+
+            // ถ้าหา bestResult ไม่เจอ ให้กลับไปใช้ผลลัพธ์แรกสุดเป็น fallback
+            let resultToUse = bestResult ?? searchResult.results.first
+
+            if let firstResult = resultToUse {
                 var animationUrl: URL?
                 var masterTallUrl: URL?
 
@@ -792,10 +850,13 @@ class StatusViewModel: ObservableObject {
                     artworkUrl = URL(string: highResUrlString) ?? URL(string: artworkString)
                 }
 
-                if let albumUrlString = firstResult.collectionViewUrl,
-                   let albumUrl = URL(string: albumUrlString) {
-                    async let animatedResponse = fetchAnimatedArtwork(for: albumUrl)
-                    async let coverResponse = fetchCoverDetails(for: albumUrl)
+                var trackUrl = firstResult.trackViewUrl.flatMap { URL(string: $0) }
+                var albumUrl = firstResult.collectionViewUrl.flatMap { URL(string: $0) }
+                let artistUrl = firstResult.artistViewUrl.flatMap { URL(string: $0) }
+
+                if let albumLookupUrl = albumUrl {
+                    async let animatedResponse = fetchAnimatedArtwork(for: albumLookupUrl)
+                    async let coverResponse = fetchCoverDetails(for: albumLookupUrl)
 
                     let (animatedArtwork, coverDetails) = await (animatedResponse, coverResponse)
 
@@ -813,8 +874,17 @@ class StatusViewModel: ObservableObject {
                             ?? animatedArtwork.animatedUrl.flatMap { URL(string: $0) }
                     }
                 }
+                albumUrl = sanitizedAppleMusicURL(from: albumUrl, droppingTrackIdentifier: true)
+                trackUrl = sanitizedAppleMusicURL(from: trackUrl, droppingTrackIdentifier: false)
 
-                let mediaURLs = TrackMediaURLs(artwork: artworkUrl, animation: animationUrl, masterTall: masterTallUrl)
+                let mediaURLs = TrackMediaURLs(
+                    artwork: artworkUrl,
+                    animation: animationUrl,
+                    masterTall: masterTallUrl,
+                    track: trackUrl,
+                    album: albumUrl,
+                    artist: artistUrl
+                )
                 trackMediaCache[cacheKey] = mediaURLs
                 return mediaURLs
             }
@@ -822,6 +892,21 @@ class StatusViewModel: ObservableObject {
             print("Error fetching or decoding artwork: \(error)")
         }
         return nil
+    }
+
+    private func sanitizedAppleMusicURL(from url: URL?, droppingTrackIdentifier: Bool) -> URL? {
+        guard let url else { return nil }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        if let items = components.queryItems {
+            let filtered = items.filter { queryItem in
+                let name = queryItem.name.lowercased()
+                if name == "uo" { return false }
+                if droppingTrackIdentifier && name == "i" { return false }
+                return true
+            }
+            components.queryItems = filtered.isEmpty ? nil : filtered
+        }
+        return components.url ?? url
     }
     
     private func fetchAnimatedArtwork(for albumUrl: URL) async -> AnimatedArtworkResponse? {
@@ -924,16 +1009,30 @@ class StatusViewModel: ObservableObject {
         with musicInfo: MusicInfo,
         artUrl: URL?,
         animationUrl: URL?,
-        tallVideoUrl: URL? = nil
+        tallVideoUrl: URL? = nil,
+        trackUrl: URL? = nil,
+        albumUrl: URL? = nil,
+        artistUrl: URL? = nil
     ) {
         let payload = buildWebhookPayload(
             event: event,
             musicInfo: musicInfo,
             artUrl: artUrl,
             animationUrl: animationUrl,
-            tallVideoUrl: tallVideoUrl
+            tallVideoUrl: tallVideoUrl,
+            trackUrl: trackUrl,
+            albumUrl: albumUrl,
+            artistUrl: artistUrl
         )
         sendToWebhook(payload: payload)
+    }
+
+    private func currentTrackLinks() -> (track: URL?, album: URL?, artist: URL?) {
+        (
+            trackTrackURL ?? lastKnownTrack?.trackUrl,
+            trackAlbumURL ?? lastKnownTrack?.albumUrl,
+            trackArtistURL ?? lastKnownTrack?.artistUrl
+        )
     }
     
     private func updateBackgroundColor(with artUrl: URL?) {
@@ -971,11 +1070,17 @@ class StatusViewModel: ObservableObject {
         musicInfo: MusicInfo,
         artUrl: URL? = nil,
         animationUrl: URL? = nil,
-        tallVideoUrl: URL? = nil
+        tallVideoUrl: URL? = nil,
+        trackUrl: URL? = nil,
+        albumUrl: URL? = nil,
+        artistUrl: URL? = nil
     ) -> [String: Any] {
         let animationString = animationUrl?.absoluteString ?? ""
         let artworkString = artUrl?.absoluteString ?? ""
         let tallVideoString = tallVideoUrl?.absoluteString ?? ""
+        let trackUrlString = trackUrl?.absoluteString ?? ""
+        let albumUrlString = albumUrl?.absoluteString ?? ""
+        let artistUrlString = artistUrl?.absoluteString ?? ""
         let primaryMediaUrl: String
         let primaryMediaType: String
 
@@ -1017,6 +1122,9 @@ class StatusViewModel: ObservableObject {
                         "trackArtUrl": artworkString,
                         "animationUrl": animationString,
                         "masterTallUrl": tallVideoString,
+                        "trackUrl": trackUrlString,
+                        "albumUrl": albumUrlString,
+                        "artistUrl": artistUrlString,
                         "primaryMediaUrl": primaryMediaUrl,
                         "primaryMediaType": primaryMediaType
                     ],
@@ -1084,6 +1192,15 @@ class StatusViewModel: ObservableObject {
             if trackMasterTallURL == nil {
                 trackMasterTallURL = currentTrack.trackMasterTallUrl
             }
+            if trackTrackURL == nil {
+                trackTrackURL = currentTrack.trackUrl
+            }
+            if trackAlbumURL == nil {
+                trackAlbumURL = currentTrack.albumUrl
+            }
+            if trackArtistURL == nil {
+                trackArtistURL = currentTrack.artistUrl
+            }
         }
 
         if var scrobbleInfo = currentScrobbleTrackInfo {
@@ -1096,8 +1213,64 @@ class StatusViewModel: ObservableObject {
             let artUrl = trackArtURL ?? lastKnownTrack?.trackArtUrl
             let animationUrl = trackAnimationURL ?? lastKnownTrack?.trackAnimationUrl
             let tallUrl = trackMasterTallURL ?? lastKnownTrack?.trackMasterTallUrl
-            sendEvent(eventType, with: scrobbleInfo, artUrl: artUrl, animationUrl: animationUrl, tallVideoUrl: tallUrl)
+            let links = currentTrackLinks()
+            sendEvent(
+                eventType,
+                with: scrobbleInfo,
+                artUrl: artUrl,
+                animationUrl: animationUrl,
+                tallVideoUrl: tallUrl,
+                trackUrl: links.track,
+                albumUrl: links.album,
+                artistUrl: links.artist
+            )
             sendLastFmNowPlaying(scrobbleInfo)
+        }
+    }
+
+    func exportEditHistory() {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "MusicScrobblerEdits.json"
+        panel.title = "ส่งออกประวัติการแก้ไข"
+        panel.message = "เลือกตำแหน่งสำหรับบันทึกไฟล์ JSON ที่มีประวัติการแก้ไขเพลง"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(editHistory)
+            try data.write(to: url, options: .atomic)
+            statusMessage = "ส่งออกประวัติการแก้ไขเรียบร้อย"
+        } catch {
+            statusMessage = "ส่งออกไม่สำเร็จ"
+            print("Failed to export edit history: \(error)")
+        }
+    }
+
+    func importEditHistory() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.json]
+        panel.title = "นำเข้าประวัติการแก้ไข"
+        panel.message = "เลือกไฟล์ JSON ที่ส่งออกจาก Music Scrobbler"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let imported = try JSONDecoder().decode([String: [String: String]].self, from: data)
+            editHistory = imported
+            saveEditHistoryToFile()
+            applyImportedEditHistory()
+            statusMessage = "นำเข้าประวัติการแก้ไขเรียบร้อย"
+        } catch {
+            statusMessage = "นำเข้าไม่สำเร็จ"
+            print("Failed to import edit history: \(error)")
         }
     }
     
@@ -1162,6 +1335,33 @@ class StatusViewModel: ObservableObject {
         if let loadedHistory = try? JSONDecoder().decode([String: [String: String]].self, from: data) {
             self.editHistory = loadedHistory
             print("โหลดประวัติการแก้ไขสำเร็จ")
+        }
+    }
+
+    private func applyImportedEditHistory() {
+        if var track = lastKnownTrack {
+            let key = "\(track.originalArtistName)||||\(track.originalTrackName)"
+            if let edits = editHistory[key] {
+                let editedTrack = edits["track"] ?? track.trackName
+                let editedArtist = edits["artist"] ?? track.artistName
+                let editedAlbum = edits["album"] ?? track.albumName ?? ""
+                track.trackName = editedTrack
+                track.artistName = editedArtist
+                track.albumName = editedAlbum.isEmpty ? nil : editedAlbum
+                lastKnownTrack = track
+                statusMessage = "กำลังเล่น: \(editedTrack) - \(editedArtist)"
+            }
+        }
+
+        if var info = currentScrobbleTrackInfo, let signature = currentTrackSignature {
+            let key = "\(signature.artist)||||\(signature.track)"
+            if let edits = editHistory[key] {
+                info.trackName = edits["track"] ?? info.trackName
+                info.artistName = edits["artist"] ?? info.artistName
+                info.albumName = edits["album"] ?? info.albumName
+                currentScrobbleTrackInfo = info
+                updatePlaybackStatus(displayPercent: playbackProgress * 100)
+            }
         }
     }
 

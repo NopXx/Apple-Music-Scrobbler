@@ -16,6 +16,9 @@ struct Track: Codable, Equatable, Hashable {
     let trackArtUrl: URL?
     let trackAnimationUrl: URL?
     let trackMasterTallUrl: URL?
+    let trackUrl: URL?
+    let albumUrl: URL?
+    let artistUrl: URL?
     // Keep original names for edit history mapping
     let originalTrackName: String
     let originalArtistName: String
@@ -26,6 +29,9 @@ struct Track: Codable, Equatable, Hashable {
         case trackArtUrl = "track_art_url"
         case trackAnimationUrl = "track_animation_url"
         case trackMasterTallUrl = "track_master_tall_url"
+        case trackUrl = "track_url"
+        case albumUrl = "album_url"
+        case artistUrl = "artist_url"
         case albumName = "album_name"
         case originalTrackName = "original_track_name"
         case originalArtistName = "original_artist_name"
@@ -68,7 +74,12 @@ struct iTunesSearchResult: Decodable {
 }
 
 struct iTunesLookupItem: Decodable {
+    let artistName: String?
+    let collectionName: String?
+    let trackName: String?
     let artworkUrl100: String?
     let previewUrl: String?
     let collectionViewUrl: String?
+    let trackViewUrl: String?
+    let artistViewUrl: String?
 }

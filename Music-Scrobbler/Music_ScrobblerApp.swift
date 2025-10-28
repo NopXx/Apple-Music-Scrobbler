@@ -110,7 +110,7 @@ struct MainWindowView: View {
             
             contentLayer
         }
-        .frame(width: 420, height: 650) // Fixed size to lock resizing
+        .frame(width: 480, height: 650) // Fixed size to lock resizing
         .background(Color.black)
         .background(WindowConfigurator())
     }
@@ -124,7 +124,7 @@ struct MainWindowView: View {
             if let tallVideoUrl = viewModel.trackMasterTallURL {
                 LoopingVideoPlayer(videoURL: tallVideoUrl)
                     .aspectRatio(contentMode: .fill)
-                    .frame(maxWidth: 420, maxHeight: .infinity, alignment: .top)
+                    .frame(maxWidth: 450, maxHeight: .infinity, alignment: .top)
             } else if let animationUrl = viewModel.trackAnimationURL {
                 LoopingVideoPlayer(videoURL: animationUrl)
                     .aspectRatio(contentMode: .fit)
@@ -136,7 +136,7 @@ struct MainWindowView: View {
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: 420, maxHeight: .infinity, alignment: .top)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     case .failure, .empty:
                         Color.clear
                     @unknown default:
@@ -181,7 +181,7 @@ struct MainWindowView: View {
     private var controlsView: some View {
         let isTallArtwork = viewModel.trackMasterTallURL != nil
         if isTallArtwork {
-            VStack(spacing: 15) {
+            VStack(spacing: 2) {
                 if let track = viewModel.lastKnownTrack {
                     VStack {
                         if isEditing {
@@ -222,7 +222,7 @@ struct MainWindowView: View {
                     }
                     .padding()
                     
-                    VStack(spacing: 5) {
+                    VStack(spacing: 2) {
                         ProgressView(value: viewModel.playbackProgress)
                             .progressViewStyle(.linear)
                             .tint(progressTintColor)
@@ -236,7 +236,7 @@ struct MainWindowView: View {
                         .foregroundStyle(captionTextColor)
                     }
                     
-                    HStack(spacing: 15) {
+                    HStack(spacing: 10) {
                         if isEditing {
                             Button("ยกเลิก") { isEditing = false }.glassButton()
                             Button("บันทึก") {
@@ -263,12 +263,12 @@ struct MainWindowView: View {
             .padding(12)
             .adaptiveGlassEffect(
                 tint: viewModel.artworkGradient.first ?? .clear,
-                tintOpacity: 0.35,
+                tintOpacity: 0.1,
                 cornerRadius: 0,
                 shadowOpacity: 0.08
             )
         } else {
-                VStack(spacing: 15) {
+                VStack(spacing: 2) {
                 if let track = viewModel.lastKnownTrack {
                     VStack {
                         if isEditing {
@@ -308,7 +308,7 @@ struct MainWindowView: View {
                         }
                     }
                     
-                    VStack(spacing: 5) {
+                    VStack(spacing: 2) {
                         ProgressView(value: viewModel.playbackProgress)
                             .progressViewStyle(.linear)
                             .tint(progressTintColor)
@@ -322,7 +322,7 @@ struct MainWindowView: View {
                         .foregroundStyle(captionTextColor)
                     }
                     
-                    HStack(spacing: 15) {
+                    HStack(spacing: 10) {
                         if isEditing {
                             Button("ยกเลิก") { isEditing = false }.glassButton()
                             Button("บันทึก") {

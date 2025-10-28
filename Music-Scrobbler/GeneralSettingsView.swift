@@ -2,6 +2,7 @@
 import SwiftUI
 
 struct GeneralSettingsView: View {
+    @EnvironmentObject private var viewModel: StatusViewModel
     @AppStorage("webhookURL") private var webhookURL: String = ""
     @AppStorage("showNotifications") private var showNotifications: Bool = true
     @AppStorage("scrobblePercent") private var scrobblePercent: Double = 50.0
@@ -35,6 +36,21 @@ struct GeneralSettingsView: View {
                     .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
                     .font(.headline)
                     .foregroundStyle(Color.primary.opacity(0.92))
+            }
+
+            Section(
+                header: Text("ประวัติการแก้ไขเพลง").foregroundStyle(Color.primary.opacity(0.8)),
+                footer: Text("สำรองหรือกู้คืนข้อมูลการแก้ไขชื่อเพลง ศิลปิน และอัลบั้ม").foregroundStyle(Color.primary.opacity(0.7))
+            ) {
+                Button("ส่งออกประวัติการแก้ไข") {
+                    viewModel.exportEditHistory()
+                }
+                .glassButton()
+
+                Button("นำเข้าประวัติการแก้ไข") {
+                    viewModel.importEditHistory()
+                }
+                .glassButton()
             }
         }
         .formStyle(.grouped)
